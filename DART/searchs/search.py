@@ -6,10 +6,14 @@ import numpy as np
 #from tensorboardX import SummaryWriter
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, SubsetRandomSampler
+
 from util import utils
 import util.config as config
 from util.config import config as cfg
+
 import util.dataset as dataset
+from utils.distributed import DataloaderX
+
 from models.search_cnn import SearchCNNController
 from searchs.architect import Architect
 from util.visualize import plot
@@ -45,7 +49,7 @@ def main():
 
         # some optimization
         torch.backends.cudnn.benchmark = True
-    
+
     # get dataset and meta info
     input_size, input_channels, n_classes, train_data = dataset.get_train_dataset(cfg.root, cfg.dataset)
     val_data = dataset.get_dataset_without_crop(cfg.root, cfg.dataset)
@@ -59,7 +63,6 @@ def main():
     model = SearchCNNController(input_channels, cfg.init_channels, n_classes, cfg.layers, net_crit, cfg.n_nodes, cfg.stem_multiplier)
     model = model.to(device)
 
-    
 
     # weights optimizer
     w_optim = torch.optim.SGD(model.weights(), cfg.w_lr, momentum=cfg.w_momentum, weight_decay=cfg.w_weight_decay)
@@ -67,6 +70,27 @@ def main():
     # alphas optimizer
     alpha_optim = torch.optim.Adam(model.alphas(), cfg.alpha_lr, betas=(0.5, 0.999), weight_decay=cfg.alpha_weight_decay)
 
+    train_sampler = torch.utils.data.distributed.DistributedSampler(train_data, shuffle=True)
+    train_loader = DataLoaderX(
+        local_rank=local_rank,
+        dataset=train_data,
+        batch_size=cfg.batch_size,
+        sampler=train_sampler,
+        num_workers=0,
+        pin_memory=True,
+        drop_last=True)
+
+    val_sampler = torch.utils.data.distributed.DistributedSampler(val_data, shuffle=False)
+    val_loader = DataLoaderX(
+        local_rank=local_rank,
+        dataset=val_data,
+        batch_size=cfg.batch_size,
+        sampler=train_sampler,
+        num_workers=0,
+        pin_memory=True,
+        drop_last=True)
+
+    """
     # loader for train and val data
     train_loader = DataLoader(
         train_data,
@@ -85,7 +109,7 @@ def main():
         pin_memory=False,
         drop_last=False
     )
-
+    """
 
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         w_optim, cfg.epochs, eta_min=cfg.w_lr_min
