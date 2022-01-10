@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, SubsetRandomSampler
 from util import utils
 import util.config as config
 from util.config import config as cfg
+from ..utils.utils_callback import CallBackVerification
 
 import util.dataset as dataset
 from utils.distributed import DataloaderX
@@ -51,44 +52,52 @@ def main():
         torch.backends.cudnn.benchmark = True
 
     # get dataset and meta info
-    input_size, input_channels, n_classes, train_data = dataset.get_train_dataset(cfg.root, cfg.dataset)
+    input_size, input_channels, n_classes, train_dataset = dataset.get_train_dataset(cfg.root, cfg.dataset)
+
+    """
     val_data = dataset.get_dataset_without_crop(cfg.root, cfg.dataset)
     # assume that indices of train_data and val_data are the same
 
     # split into train val and get indices of splits
     train_idx, val_idx = dataset.get_train_val_split(train_data, cfg.dataset, 0.5)
+    """
 
     # setup model
-    net_crit = nn.CrossEntropyLoss().to(device)
-    model = SearchCNNController(input_channels, cfg.init_channels, n_classes, cfg.layers, net_crit, cfg.n_nodes, cfg.stem_multiplier)
+    """
+    criterion = nn.CrossEntropyLoss().to(device)
+    """
+    criterion =
+    model = SearchCNNController(input_channels, cfg.init_channels, n_classes, cfg.layers, criterion, cfg.n_nodes, cfg.stem_multiplier)
     model = model.to(device)
-
 
     # weights optimizer
     w_optim = torch.optim.SGD(model.weights(), cfg.w_lr, momentum=cfg.w_momentum, weight_decay=cfg.w_weight_decay)
-
     # alphas optimizer
     alpha_optim = torch.optim.Adam(model.alphas(), cfg.alpha_lr, betas=(0.5, 0.999), weight_decay=cfg.alpha_weight_decay)
 
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_data, shuffle=True)
+    # sampler and loader for training dataset (e.g. CASIA)
+    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset, shuffle=True)
     train_loader = DataLoaderX(
         local_rank=local_rank,
-        dataset=train_data,
+        dataset=train_dataset,
         batch_size=cfg.batch_size,
         sampler=train_sampler,
         num_workers=0,
         pin_memory=True,
         drop_last=True)
 
-    val_sampler = torch.utils.data.distributed.DistributedSampler(val_data, shuffle=False)
-    val_loader = DataLoaderX(
-        local_rank=local_rank,
-        dataset=val_data,
-        batch_size=cfg.batch_size,
-        sampler=train_sampler,
-        num_workers=0,
-        pin_memory=True,
-        drop_last=True)
+    callback_verification = CallBackVerification(frequent=None, rank, cfg.val_targets, cfg.rec)
+
+    # sampler and loader for verification on validation dataset (containing multiple face recognition databases)
+    #val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False)
+    #val_loader = DataLoaderX(
+    #    local_rank=local_rank,
+    #    dataset=val_dataset,
+    #    batch_size=cfg.batch_size,
+    #    sampler=train_sampler,
+    #    num_workers=0,
+    #    pin_memory=True,
+    #    drop_last=True)
 
     """
     # loader for train and val data
@@ -131,8 +140,8 @@ def main():
         lr_scheduler.step()
 
         # validation
-        cur_step = (epoch+1) * len(train_loader)
-        top1 = validate(val_loader, model, epoch, cur_step)
+        global_step = (epoch+1) * len(train_loader)
+        top1 = validate(val_loader, model, epoch, global_step)
 
         # log
         # genotype
@@ -164,8 +173,8 @@ def train(train_loader, val_loader, model, architect, w_optim, alpha_optim, lr, 
     top1 = utils.AverageMeter()
     losses = utils.AverageMeter()
 
-    cur_step = epoch*len(train_loader)
-    writer.add_scalar('train/lr', lr, cur_step)
+    global_step = epoch*len(train_loader)
+    writer.add_scalar('train/lr', lr, global_step)
 
     model.train()
 
@@ -204,46 +213,33 @@ def train(train_loader, val_loader, model, architect, w_optim, alpha_optim, lr, 
                     epoch+1, cfg.epochs, step, len(train_loader)-1, losses=losses,
                     top1=top1))
 
-        writer.add_scalar('train/loss', loss.item(), cur_step)
-        writer.add_scalar('train/top1', prec1.item(), cur_step)
-        cur_step += 1
+        writer.add_scalar('train/loss', loss.item(), global_step)
+        writer.add_scalar('train/top1', prec1.item(), global_step)
+        global_step += 1
 
     logger.info("Train: [{:2d}/{}] Final Prec@1 {:.4%}".format(epoch+1, cfg.epochs, top1.avg))
 
 
-def validate(val_loader, model, epoch, cur_step):
-    top1 = utils.AverageMeter()
-    losses = utils.AverageMeter()
+def validate(val_loader, model, epoch, global_step):
+    val_accuracies = utils.AverageMeter()
 
     model.eval()
 
     with torch.no_grad():
-        for step, (X, y) in enumerate(val_loader):
-            X, y = X.to(device, non_blocking=True), y.to(device, non_blocking=True)
-            N = X.size(0)
+        verification_results = verification_callback.get_verification_performance(model, global_step)
 
-            logits = model(X)
-            loss = model.criterion(logits, y)
+        # val_accuracies.update(verification_results)
 
-            prec1 = utils.accuracy(logits, y, topk=(1,))
-            prec1 = prec1[0]
+        if step % cfg.print_freq == 0 or step == len(val_loader)-1:
+            logger.info("Valid: [{:2d}/{}] Prec@(1,5) ({top1.avg:.1%})".format(epoch+1, cfg.epochs, top1=val_accuracies))
 
-            losses.update(loss.item(), N)
-            top1.update(prec1.item(), N)
+    writer.add_scalar('val/top1', val_accuracies.avg, global_step)
 
-            if step % cfg.print_freq == 0 or step == len(val_loader)-1:
-                logger.info(
-                    "Valid: [{:2d}/{}] Step {:03d}/{:03d} Loss {losses.avg:.3f} "
-                    "Prec@(1,5) ({top1.avg:.1%})".format(
-                        epoch+1, cfg.epochs, step, len(val_loader)-1, losses=losses,
-                        top1=top1))
+    logger.info("Valid: [{:2d}/{}] Final Prec@1 {:.4%}".format(epoch+1, cfg.epochs, val_accuracies.avg))
 
-    writer.add_scalar('val/loss', losses.avg, cur_step)
-    writer.add_scalar('val/top1', top1.avg, cur_step)
+    model.train()
 
-    logger.info("Valid: [{:2d}/{}] Final Prec@1 {:.4%}".format(epoch+1, cfg.epochs, top1.avg))
-
-    return top1.avg
+    return val_accuracies.avg
 
 if __name__ == "__main__":
     main()

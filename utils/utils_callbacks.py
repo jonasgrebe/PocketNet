@@ -33,6 +33,25 @@ class CallBackVerification(object):
                 '[%s][%d]Accuracy-Highest: %1.5f' % (self.ver_name_list[i], global_step, self.highest_acc_list[i]))
             results.append(acc2)
 
+    def get_verification_performance(self, backbone: torch.nn.Module, global_step: int):
+        results = {}
+
+        assert len(self.ver_list) == len(self.ver_name_list)
+
+        for i, (dataset, dataset_name) in enumerate(zip(self.ver_list, self.ver_name_list))
+
+            logging.info(f'Validation on {dataset_name}')
+            _, _, acc2, _, xnorm, _ = verification.test(dataset, backbone, 10, 10)
+            logging.info('[%s][%d]XNorm: %f' % (dataset_name, global_step, xnorm))
+            logging.info('[%s][%d]Accuracy-Flip: %1.5f+-%1.5f' % (dataset_name, global_step, acc2, std2))
+
+            if acc2 > self.highest_acc_list[i]:
+                self.highest_acc_list[i] = acc2
+
+            results[dataset_name] = {'xnorm': xnorm, 'accuracy_flip': acc2}
+
+        return results
+        
     def init_dataset(self, val_targets, data_dir, image_size):
         for name in val_targets:
             path = os.path.join(data_dir, name + ".bin")
@@ -138,7 +157,6 @@ class CallBackLoggingKD(object):
                 self.init = True
                 self.tic = time.time()
 
-
 class CallBackModelCheckpoint(object):
     def __init__(self, rank, output="./"):
         self.rank: int = rank
@@ -149,6 +167,7 @@ class CallBackModelCheckpoint(object):
             torch.save(backbone_student.module.state_dict(), os.path.join(self.output, str(global_step)+ "backbone.pth"))
         if global_step > 100 and header is not None:
             torch.save(header.module.state_dict(), os.path.join(self.output, str(global_step)+ "header.pth"))
+
 class CallBackModelCheckpointKD(object):
     def __init__(self, rank, output="./"):
         self.rank: int = rank
