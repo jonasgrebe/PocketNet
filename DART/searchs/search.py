@@ -10,6 +10,9 @@ from torch.utils.data import DataLoader, SubsetRandomSampler
 from util import utils
 import util.config as config
 from util.config import config as cfg
+
+# maybe here something with importing goes wrong when tested:
+from util.verification_dataset import VerificationDataset
 from ..utils.utils_callback import CallBackVerification
 
 import util.dataset as dataset
@@ -63,11 +66,20 @@ def main():
     """
 
     # setup model
-    """
     criterion = nn.CrossEntropyLoss().to(device)
-    """
-    criterion =
-    model = SearchCNNController(input_channels, cfg.init_channels, n_classes, cfg.layers, criterion, cfg.n_nodes, cfg.stem_multiplier)
+    header = ... # TODO: add your wanted FR header here
+
+    model = SearchCNNController(
+        input_channels,
+        cfg.init_channels,
+        n_classes,
+        cfg.layers,
+        criterion,
+        header,
+        cfg.n_nodes,
+        cfg.stem_multiplier
+    )
+
     model = model.to(device)
 
     # weights optimizer
@@ -88,37 +100,17 @@ def main():
 
     callback_verification = CallBackVerification(frequent=None, rank, cfg.val_targets, cfg.rec)
 
-    # sampler and loader for verification on validation dataset (containing multiple face recognition databases)
-    #val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False)
-    #val_loader = DataLoaderX(
-    #    local_rank=local_rank,
-    #    dataset=val_dataset,
-    #    batch_size=cfg.batch_size,
-    #    sampler=train_sampler,
-    #    num_workers=0,
-    #    pin_memory=True,
-    #    drop_last=True)
-
-    """
-    # loader for train and val data
-    train_loader = DataLoader(
-        train_data,
+    # sampler and loader for verification on validation dataset (containing only one face verification dataset)
+    val_dataset = VerificationDataset(data_dir='', dataset_name='lfw', image_size=[112, 112])
+    val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False)
+    val_loader = DataLoaderX(
+        local_rank=local_rank,
+        dataset=val_dataset,
         batch_size=cfg.batch_size,
-        sampler=SubsetRandomSampler(train_idx),
-        num_workers=cfg.workers,
-        pin_memory=False,
-        drop_last=False
-    )
-
-    val_loader = DataLoader(
-        val_data,
-        batch_size=cfg.batch_size,
-        sampler=SubsetRandomSampler(val_idx),
-        num_workers=cfg.workers,
-        pin_memory=False,
-        drop_last=False
-    )
-    """
+        sampler=train_sampler,
+        num_workers=0,
+        pin_memory=True,
+        drop_last=True)
 
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         w_optim, cfg.epochs, eta_min=cfg.w_lr_min
@@ -169,7 +161,7 @@ def main():
     logger.info("Final best Prec@1 = {:.4%}".format(best_top1))
     logger.info("Best Genotype = {}".format(best_genotype))
 
-def train(train_loader, val_loader, model, architect, w_optim, alpha_optim, lr, epoch):
+def train(train_loader, val_loader, model, header, architect, w_optim, alpha_optim, lr, epoch):
     top1 = utils.AverageMeter()
     losses = utils.AverageMeter()
 
@@ -185,13 +177,15 @@ def train(train_loader, val_loader, model, architect, w_optim, alpha_optim, lr, 
 
         # phase 2. architect step (alpha)
         alpha_optim.zero_grad()
+
         architect.unrolled_backward(trn_X, trn_y, val_X, val_y, lr, w_optim)
         #alpha_optim.step() # change position because of pytorch warning
 
         # phase 1. child network step (w)
         w_optim.zero_grad()
-        logits = model(trn_X)
-        loss = model.criterion(logits, trn_y)
+
+        # look SearchCNNController.loss() for details
+        loss = model.loss(train_X, train_y)
         loss.backward()
 
         # gradient clipping
@@ -227,11 +221,11 @@ def validate(val_loader, model, epoch, global_step):
 
     with torch.no_grad():
         verification_results = verification_callback.get_verification_performance(model, global_step)
-
-        # val_accuracies.update(verification_results)
+        mean_acc2 = sum([d['accuracy_flip'] for d in verification_results.values()]) / len(verification_results)
+        val_accuracies.update(mean_acc2)
 
         if step % cfg.print_freq == 0 or step == len(val_loader)-1:
-            logger.info("Valid: [{:2d}/{}] Prec@(1,5) ({top1.avg:.1%})".format(epoch+1, cfg.epochs, top1=val_accuracies))
+            logger.info("Valid: [{:2d}/{}] Prec@(1,5) ({acc.avg:.1%})".format(epoch+1, cfg.epochs, acc=val_accuracies))
 
     writer.add_scalar('val/top1', val_accuracies.avg, global_step)
 
