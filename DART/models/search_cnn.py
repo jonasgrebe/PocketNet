@@ -65,7 +65,7 @@ class SearchCNN(nn.Module):
             C_cur_out = C_cur * n_nodes
             C_pp, C_p = C_p, C_cur_out
 
-        # As in MobileFaceNet 
+        # As in MobileFaceNet
         # conv 1x1
         # linearGDConv 7x7
         # linear conv1x1
@@ -80,7 +80,8 @@ class SearchCNN(nn.Module):
             nn.BatchNorm2d(128)
         )
 
-        self.linear = nn.Linear(128, n_classes)
+        # Removed Linear Classification Header
+        # self.linear = nn.Linear(128, n_classes)
 
     def forward(self, x, weights_normal, weights_reduce):
         s0 = s1 = self.stem(x)
@@ -91,16 +92,17 @@ class SearchCNN(nn.Module):
 
         out = self.tail(s1)
         out = out.view(out.size(0), -1) # flatten
-        out = self.linear(out)
+        # out = self.linear(out)
 
         return out
 
 
 class SearchCNNController(nn.Module):
     """ SearchCNN controller supporting multi-gpu """
-    def __init__(self, C_in, C, n_classes, n_layers, criterion, n_nodes=4, stem_multiplier=3):
+    def __init__(self, C_in, C, n_classes, n_layers, criterion, header, n_nodes=4, stem_multiplier=3):
         super().__init__()
         self.n_nodes = n_nodes
+        self.header = header
         self.criterion = criterion
 
         device_ids = list(range(torch.cuda.device_count()))
@@ -146,7 +148,8 @@ class SearchCNNController(nn.Module):
         return nn.parallel.gather(outputs, self.device_ids[0])
 
     def loss(self, X, y):
-        logits = self.forward(X)
+        features = self.forward(X) # TODO: remove classifier at end of model
+        logits = model.header(features, y)
         return self.criterion(logits, y)
 
     def print_alphas(self, logger):
