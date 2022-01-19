@@ -2,7 +2,6 @@
 import copy
 import torch
 
-
 class Architect():
     """ Compute gradients of alphas """
     def __init__(self, net, w_momentum, w_weight_decay):
@@ -59,7 +58,12 @@ class Architect():
         self.virtual_step(trn_X, trn_y, xi, w_optim)
 
         # calc unrolled loss
-        loss = self.v_net.loss(val_X, val_y) # L_val(w`)
+        val_img0, val_img1 = val_X
+        val_label = val_Y
+        # cosine similarity loss
+        criterion = CosineEmbeddingLoss()
+        loss = self.model.criterion(val_X, val_Y)
+        # previously: loss = self.v_net.loss(val_X, val_y) # L_val(w`)
 
         # compute gradient
         v_alphas = tuple(self.v_net.alphas())
