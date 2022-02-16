@@ -4,7 +4,7 @@ import torch
 
 class Architect():
     """ Compute gradients of alphas """
-    def __init__(self, net, w_momentum, w_weight_decay):
+    def __init__(self, net, w_momentum, w_weight_decay, mode):
         """
         Args:
             net
@@ -14,6 +14,9 @@ class Architect():
         self.v_net = copy.deepcopy(net)
         self.w_momentum = w_momentum
         self.w_weight_decay = w_weight_decay
+
+        self.mode = mode
+        self.cosine_embedding_loss = torch.nn.CosineEmbeddingLoss(margin=0.0)
 
     def virtual_step(self, trn_X, trn_y, xi, w_optim):
         """
@@ -58,12 +61,22 @@ class Architect():
         self.virtual_step(trn_X, trn_y, xi, w_optim)
 
         # calc unrolled loss
-        val_img0, val_img1 = val_X
-        val_label = val_Y
-        # cosine similarity loss
-        criterion = CosineEmbeddingLoss()
-        loss = self.model.criterion(val_X, val_Y)
-        # previously: loss = self.v_net.loss(val_X, val_y) # L_val(w`)
+        if self.mode == 'identity-disjoint':
+            val_img0, val_img1 = val_X
+            val_label = val_Y
+
+            embeds0 = self.model(val_img0)
+            embeds1 = self.model(val_img0)
+
+            loss = self.cosine_embedding_loss(embeds0, embeds1, val_label)
+        else:
+            # first version
+            # replacing softmax with margin penalty softmax
+            logits = self.model.header(val_X)
+            loss = self.model.criterion(logits, val_Y)
+
+        # TODO: + add penalty for network size / #FLOPS
+        # loss += penalty(self.net)
 
         # compute gradient
         v_alphas = tuple(self.v_net.alphas())

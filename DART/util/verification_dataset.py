@@ -10,6 +10,8 @@ from typing import List
 class VerificationDataset(torch.utils.Dataset):
 
     def __init__(self, data_dir: str ='', dataset_name: str = 'lfw', image_size = [112, 112]):
+        # TODO: Add support for multiple datasets at once
+        # TODO: Add ability to transform "normal classification dataset" into this format
 
         path = os.path.join(data_dir, dataset_name + ".bin")
 

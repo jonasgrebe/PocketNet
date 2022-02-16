@@ -149,7 +149,7 @@ class SearchCNNController(nn.Module):
 
     def loss(self, X, y):
         features = self.forward(X) # TODO: remove classifier at end of model
-        logits = model.header(features, y)
+        logits = self.header(features, y)
         return self.criterion(logits, y)
 
     def print_alphas(self, logger):
