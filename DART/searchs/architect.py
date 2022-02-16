@@ -65,13 +65,13 @@ class Architect():
             val_img0, val_img1 = val_X
             val_label = val_Y
 
-            embeds0 = self.model(val_img0)
-            embeds1 = self.model(val_img0)
+            features0 = self.model(val_img0)
+            features1 = self.model(val_img0)
 
-            loss = self.cosine_embedding_loss(embeds0, embeds1, val_label)
+            loss = self.cosine_embedding_loss(features0, features1, val_label)
         else:
-            # first version
-            # replacing softmax with margin penalty softmax
+            features = self.model(val_X)
+
             logits = self.model.header(val_X)
             loss = self.model.criterion(logits, val_Y)
 
