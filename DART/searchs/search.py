@@ -102,7 +102,7 @@ def main():
         # maybe like here: https://github.com/jonasgrebe/pt-femb-face-embeddings/tree/main/femb/headers
 
 
-    SCENARIO = 1 # 0 or 1 or 2 or 3
+    SCENARIO = cfg.scenario # 0 or 1 or 2 or 3
 
     if SCENARIO in [0, 1]:
 

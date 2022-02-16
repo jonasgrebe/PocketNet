@@ -7,7 +7,9 @@ from functools import partial
 from easydict import EasyDict as edict
 
 config = edict()
-config.name = "searchPocketNet"
+
+config.scenario = 1
+config.name = f"searchPocketNet_scenario{config.scenario}"
 config.batch_size = 128
 config.w_lr = 0.1
 config.w_lr_min = 0.004
@@ -62,5 +64,5 @@ def as_markdown():
     text = "|name|value|  \n|-|-|  \n"
     for attr, value in sorted(config.items()):
         text += "|{}|{}|  \n".format(attr, value)
-    
+
     return text
