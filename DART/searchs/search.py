@@ -145,12 +145,14 @@ def main():
         if SCENARIO == 2:
             raise NotImplementedError("Sorry: We have to transform the val_dataset somehow into a VerificationDataset that returns (img0, img1, label), instead of (img, identity)")
 
+            # TODO: Implement split_identity_disjoint(...) function
             train_idx, val_idx = split_identity_disjoint(train_dataset)
 
+            # TODO: Implement Transformation from ClassificationDataset to VerificationDataset
+            #       -> return (img0, img1, genuine/imposter) instead of (img, identity)
             train_dataset = Subset(train_dataset, train_idx)
             val_dataset = Subset(train_dataset, val_idx)
-
-            # Idea: val_dataset = VerificationDataset(val_dataset)
+            # like: val_dataset = VerificationDataset(val_dataset)
 
         else SCENARIO == 3:
             # sampler and loader for training dataset (e.g. CASIA)
